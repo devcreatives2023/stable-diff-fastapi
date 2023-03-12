@@ -1,17 +1,12 @@
 # import fastapi
 from fastapi import FastAPI, UploadFile, File
 from starlette.responses import StreamingResponse
-from diffusers import (
-    StableDiffusionPipeline,
-    StableDiffusionImg2ImgPipeline
-)
-from PIL import Image
-import numpy as np
-from torch import autocast
+from diffusers import StableDiffusionPipeline
+import base64
 import uvicorn
-import cv2
 import io
 import torch
+from io import BytesIO
 
 # instantiate the app
 app = FastAPI()
@@ -32,24 +27,42 @@ def index():
 
 # create a text2img route
 @app.post("/text2img")
-def text2img(text: str):
+def text2img(model_inputs:dict):
     device = get_device()
 
-    text2img_pipe = StableDiffusionPipeline.from_pretrained("../model")
-    text2img_pipe.to(device)
+    model = StableDiffusionPipeline.from_pretrained("../model")
+    model.to(device)
 
-    img = text2img_pipe(text).images[0]
+    model.enable_attention_slicing()
+    model.enable_vae_slicing()
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                        
+    # Run the pipeline, showing some of the available arguments
+    pipe_output = model(
+        prompt=model_inputs.get('prompt', None), # What to generate
+        negative_prompt="Oversaturated, blurry, low quality", # What NOT to generate
+        height=480, width=640,     # Specify the image size
+        guidance_scale=12,          # How strongly to follow the prompt
+        num_inference_steps=35,    # How many steps to take
+        #generator=generator        
+    )
 
-    img = np.array(img)
-    img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
-    res, img = cv2.imencode(".png", img)
+    #del model
+    # if torch.cuda.is_available():
+    #     torch.cuda.empty_cache()
 
-    del text2img_pipe
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
+    image = pipe_output.images[0]
+    buffered = BytesIO()
+    image.save(buffered,format="JPEG")
+    image_base64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
 
-    return StreamingResponse(io.BytesIO(img.tobytes()), media_type="image/png")
+    # Return the results as a dictionary
+    return {'image_base64': image_base64}
 
 # run the app
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
+
+
+
+
